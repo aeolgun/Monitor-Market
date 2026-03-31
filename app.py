@@ -7,18 +7,18 @@ from datetime import datetime
 import os
 import parameters as p
 
-st.set_page_config(page_title="BIST Karar Terminali", layout="wide")
+st.set_page_config(page_title="BIST Strateji Terminali", layout="wide")
 
-# CSS: Gelişmiş Okunabilirlik ve Renkli Hacim
+# CSS: Dinamik ve Okunaklı Arayüz
 st.markdown("""
     <style>
-    .stTable { background-color: rgba(255,255,255,0.05); border-radius: 10px; }
-    .decision-box { padding: 10px; border-radius: 8px; text-align: center; font-weight: bold; margin-bottom: 10px; font-size: 18px; }
-    .data-row { display: flex; justify-content: space-between; padding: 5px 15px; border-bottom: 1px solid rgba(128, 128, 128, 0.1); }
-    .data-label { color: #aaa !important; font-size: 12px; }
-    .data-value { color: #fff !important; font-weight: bold; font-family: monospace; }
-    .vol-low { color: #ff4b4b !important; }
-    .vol-high { color: #00ff00 !important; }
+    .decision-box { padding: 12px; border-radius: 10px; text-align: center; font-weight: bold; margin-bottom: 10px; font-size: 20px; border: 1px solid rgba(255,255,255,0.2); }
+    .data-row { display: flex; justify-content: space-between; padding: 6px 15px; border-bottom: 1px solid rgba(128, 128, 128, 0.1); }
+    .data-label { color: #bbb !important; font-size: 13px; font-weight: 500; }
+    .data-value { color: #fff !important; font-weight: bold; font-family: 'Courier New', monospace; }
+    .vol-low { color: #ff4b4b !important; font-weight: bold; }
+    .vol-high { color: #00ff00 !important; font-weight: bold; }
+    .target-box { background-color: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; margin-top: 10px; border: 1px dashed #555; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -29,18 +29,16 @@ def get_tv_connection():
 def get_p(attr, default):
     return getattr(p, attr, default)
 
-# --- ÜST STRATEJİ TABLOSU ---
-def strateji_tablosu():
-    st.subheader("📋 Mevcut Strateji Parametreleri")
-    df_strat = pd.DataFrame({
-        "Parametre": ["Zaman Dilimi", "Hızlı EMA", "Yavaş EMA", "RSI Periyot", "RSI Eşik", "Kar Al", "Zarar Kes"],
-        "Değer": [get_p('ZAMAN_DILIMI','4h'), get_p('EMA_HIZLI',20), get_p('EMA_YAVAS',50), 
-                  get_p('RSI_PERIYOT',14), get_p('RSI_SINIR',50), f"%{get_p('KAR_AL_ORAN',25)}", f"%{get_p('ZARAR_KES_ORAN',5)}"]
-    })
-    st.table(df_strat)
+st.title("🛡️ BIST Profesyonel Karar Destek")
 
-st.title("🛡️ BIST Karar & Takip Terminali")
-strateji_tablosu()
+# Üst Strateji Özeti (Küçük ve Şık)
+expander = st.expander("📋 Aktif Strateji Parametrelerini Gör", expanded=False)
+with expander:
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Zaman Dilimi", get_p('ZAMAN_DILIMI','4h'))
+    c2.metric("EMA Hızlı/Yavaş", f"{get_p('EMA_HIZLI',20)} / {get_p('EMA_YAVAS',50)}")
+    c3.metric("RSI Eşik", get_p('RSI_SINIR',50))
+    c4.metric("Kar/Zarar Oranı", f"%{get_p('KAR_AL_ORAN',25)} / %{get_p('ZARAR_KES_ORAN',5)}")
 
 tv = get_tv_connection()
 placeholder = st.empty()
@@ -69,45 +67,54 @@ while True:
                     v_ma_v = ta.sma(df['volume'], length=get_p('HACIM_MA_PERIYOT', 20)).iloc[-1]
                     curr_v = df['volume'].iloc[-1]
 
-                    # --- KARAR MEKANİZMASI ---
+                    # --- KARAR VE RENK MANTIĞI ---
+                    has_position = False
                     if ema_h_v > ema_y_v and rsi_v > get_p('RSI_SINIR', 50):
-                        decision, bg, color = "🚀 AL", "#1b5e20", "white"
-                    elif price > (ema_h_v * 1.02) and ema_h_v > ema_y_v:
-                        decision, bg, color = "💎 TUT", "#0d47a1", "white" # Mavi
+                        decision, bg, has_position = "🚀 AL", "#1b5e20", True
+                    elif price > (ema_h_v * 1.01) and ema_h_v > ema_y_v:
+                        decision, bg, has_position = "💎 TUT", "#0d47a1", True
                     elif ema_h_v < ema_y_v:
-                        decision, bg, color = "⚠️ SAT / ÇIK", "#b71c1c", "white"
+                        decision, bg, has_position = "⚠️ SAT / ÇIK", "#b71c1c", True
                     else:
-                        decision, bg, color = "⌛ BEKLE", "#f57f17", "white"
+                        decision, bg, has_position = "⌛ BEKLE", "#444", False
 
                     with cols[idx % 3]:
                         with st.container(border=True):
-                            # Karar Kutusu
-                            st.markdown(f'<div class="decision-box" style="background-color:{bg}; color:{color};">{h}: {decision}</div>', unsafe_allow_html=True)
+                            # Karar Başlığı
+                            st.markdown(f'<div class="decision-box" style="background-color:{bg}; color:white;">{h}: {decision}</div>', unsafe_allow_html=True)
                             
-                            # Fiyat ve Teknik Veriler
+                            # Teknik Veriler
                             st.markdown(f"""
-                                <div class="data-row"><span class="data-label">Anlık Fiyat:</span><span class="data-value">{price:.2f} TL</span></div>
-                                <div class="data-row"><span class="data-label">RSI Değeri:</span><span class="data-value">{rsi_v:.1f}</span></div>
+                                <div class="data-row"><span class="data-label">Fiyat:</span><span class="data-value">{price:.2f} TL</span></div>
                                 <div class="data-row"><span class="data-label">EMA {get_p('EMA_HIZLI',20)}:</span><span class="data-value">{ema_h_v:.2f}</span></div>
+                                <div class="data-row"><span class="data-label">EMA {get_p('EMA_YAVAS',50)}:</span><span class="data-value">{ema_y_v:.2f}</span></div>
+                                <div class="data-row"><span class="data-label">RSI:</span><span class="data-value">{rsi_v:.1f}</span></div>
                             """, unsafe_allow_html=True)
                             
-                            # Hacim Kontrolü (Renkli Değer)
-                            vol_color = "vol-high" if curr_v > v_ma_v else "vol-low"
+                            # Hacim Bilgisi (Kıyaslamalı ve Renkli)
+                            vol_status = "vol-high" if curr_v > v_ma_v else "vol-low"
                             st.markdown(f"""
-                                <div class="data-row">
-                                    <span class="data-label">Hacim:</span>
-                                    <span class="data-value {vol_color}">{curr_v:,.0f}</span>
+                                <div class="data-row" style="border:none;">
+                                    <span class="data-label">Hacim (Güncel/Ort):</span>
+                                    <span class="data-value {vol_status}">{curr_v:,.0f} / {v_ma_v:,.0f}</span>
                                 </div>
                             """, unsafe_allow_html=True)
 
-                            st.divider()
-                            # Hedefler
-                            st.caption(f"🎯 Hedef: {price*(1+get_p('KAR_AL_ORAN',25)/100):.2f} | 🛡️ Stop: {price*(1-get_p('ZARAR_KES_ORAN',5)/100):.2f}")
-                else:
-                    cols[idx % 3].error(f"{h} Veri Yok")
-            except: continue
+                            # --- ŞARTLI HEDEF GÖSTERİMİ ---
+                            if has_position:
+                                ka_fiyat = price * (1 + get_p('KAR_AL_ORAN', 25) / 100)
+                                zk_fiyat = price * (1 - get_p('ZARAR_KES_ORAN', 5) / 100)
+                                st.markdown(f"""
+                                    <div class="target-box">
+                                        <p style="margin:0; font-size:13px; color:#aaa; text-align:center;">🎯 Kar Al: <b style="color:#00ff00;">{ka_fiyat:.2f}</b></p>
+                                        <p style="margin:0; font-size:13px; color:#aaa; text-align:center;">🛡️ Stop: <b style="color:#ff4b4b;">{zk_fiyat:.2f}</b></p>
+                                    </div>
+                                """, unsafe_allow_html=True)
+                            else:
+                                st.markdown('<div style="height:62px; display:flex; align-items:center; justify-content:center; color:#666; font-style:italic; font-size:12px;">Pozisyon bekleniyor...</div>', unsafe_allow_html=True)
 
-        st.caption(f"⏱️ Son Güncelleme: {datetime.now().strftime('%H:%M:%S')} | Mod: {Z_DILIMI}")
-    
+            except Exception as e:
+                st.error(f"{h} Hatası")
+                
     time.sleep(get_p('GUNCELLEME_SANIYESI', 60))
     st.rerun()
