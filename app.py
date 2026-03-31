@@ -7,80 +7,67 @@ from datetime import datetime
 import os
 import parameters as p
 
-# Sayfa Genişliği Ayarı
+# Sayfa Yapılandırması
 st.set_page_config(page_title="Monitor-Market", layout="wide")
 
-# 1. DOSYA OKUMA FONKSİYONU (Hatalara Karşı Güçlendirilmiş)
 def liste_yukle():
-    # Dosyanın tam yolunu bul (Streamlit Cloud dosya sistemi uyumu için)
     current_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(current_dir, "inputs.txt")
-    
     try:
         if os.path.exists(file_path):
             with open(file_path, "r", encoding="utf-8") as f:
-                # Satırları temizle, boş satırları atla ve büyük harfe çevir
-                hisseler = [line.strip().upper() for line in f.readlines() if line.strip()]
-                return hisseler
+                return [line.strip().upper() for line in f.readlines() if line.strip()]
         else:
-            st.sidebar.error("⚠️ inputs.txt dosyası bulunamadı!")
             return ["THYAO.IS"]
-    except Exception as e:
-        st.sidebar.error(f"❌ Liste okuma hatası: {e}")
+    except:
         return ["THYAO.IS"]
 
-# 2. VERİ ÇEKME VE HESAPLAMA FONKSİYONU
 def get_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
-        # EMA_YAVAS periyodundan daha fazla veri çekilmeli (En az 60 gün idealdir)
         df = ticker.history(period="60d", interval="1h")
         
         if df.empty or len(df) < p.EMA_YAVAS:
             return None, None
 
-        # Parametre dosyasındaki değerleri kullanarak hesaplama yap
+        # Hesaplamalar
         df['ema_h'] = ta.ema(df['Close'], length=p.EMA_HIZLI)
         df['ema_y'] = ta.ema(df['Close'], length=p.EMA_YAVAS)
         df['rsi'] = ta.rsi(df['Close'], length=p.RSI_PERIYOT)
         df['v_ma'] = ta.sma(df['Volume'], length=p.HACIM_MA_PERIYOT)
         
         return df.iloc[-1], df['Close'].iloc[-1]
-    except Exception:
+    except:
         return None, None
 
-# --- ARAYÜZ BAŞLANGICI ---
-st.title("📈 Monitor-Market: BIST Teknik Analiz")
-st.caption(f"Strateji: EMA {p.EMA_HIZLI}/{p.EMA_YAVAS} | RSI {p.RSI_PERIYOT} | Veriler 15 dk gecikmelidir.")
-
-# Yan Menüde Takip Listesini Göster
+# ARAYÜZ
+st.title("📊 Monitor-Market: Detaylı Analiz")
 hisseler = liste_yukle()
-st.sidebar.header("📋 Takip Edilenler")
-st.sidebar.write(f"Toplam: {len(hisseler)} Hisse")
-st.sidebar.info("\n".join(hisseler))
 
-# Ana Ekran Alanı
+# Yan Menü Bilgi
+st.sidebar.title("⚙️ Parametreler")
+st.sidebar.write(f"Hızlı EMA: **{p.EMA_HIZLI}**")
+st.sidebar.write(f"Yavaş EMA: **{p.EMA_YAVAS}**")
+st.sidebar.write(f"RSI Periyot: **{p.RSI_PERIYOT}**")
+st.sidebar.divider()
+st.sidebar.write(f"Takipteki Hisse: {len(hisseler)}")
+
 placeholder = st.empty()
 
-# 3. ANA DÖNGÜ
 while True:
     with placeholder.container():
-        # Görünümü 2 sütuna böl
+        # Her satırda 2 hisse kartı göster
         cols = st.columns(2)
-        count = 0
-        success_count = 0
         
-        for h in hisseler:
+        for idx, h in enumerate(hisseler):
             data, price = get_data(h)
             
             if data is not None:
-                success_count += 1
                 # Sinyal Mantığı
                 trend_yukari = data['ema_h'] > data['ema_y']
                 rsi_guclu = data['rsi'] > p.RSI_SINIR
                 hacim_onay = data['Volume'] > data['v_ma']
                 
-                # Durum ve Renk Belirleme
                 if trend_yukari and rsi_guclu and hacim_onay:
                     durum, renk = "🟢 GÜÇLÜ AL", "green"
                 elif not trend_yukari or data['rsi'] > p.RSI_ASIRI_ALIM:
@@ -88,19 +75,28 @@ while True:
                 else:
                     durum, renk = "🟡 BEKLE / NÖTR", "gray"
 
-                # Sütunlara kartları yerleştir
-                with cols[count % 2]:
-                    with st.expander(f"**{h.replace('.IS', '')}** — {price:.2f} TL", expanded=True):
-                        st.markdown(f"**Durum:** {durum}")
-                        st.write(f"RSI: `{round(data['rsi'], 1)}` | Trend: `{'Yukarı' if trend_yukari else 'Aşağı'}`")
-                count += 1
-        
-        if success_count == 0:
-            st.warning("⚠️ Seçili hisseler için veri alınamadı. Lütfen 'inputs.txt' içeriğini kontrol edin.")
-
+                # Kart İçeriği
+                with cols[idx % 2]:
+                    with st.container(border=True):
+                        st.subheader(f"{h.replace('.IS', '')} : {price:.2f} TL")
+                        st.write(f"**Sinyal Kararı:** {durum}")
+                        
+                        # Parametre Detayları (3 Sütun)
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("EMA H/Y", f"{round(data['ema_h'],1)} / {round(data['ema_y'],1)}", 
+                                  f"{round(data['ema_h'] - data['ema_y'], 1)}")
+                        c2.metric("RSI", f"{round(data['rsi'], 1)}", 
+                                  delta="Aşırı Alım" if data['rsi'] > 70 else None, delta_color="inverse")
+                        
+                        # Hacim bilgisini okunabilir yapalım (Milyon cinsinden)
+                        hacim_milyon = data['Volume'] / 1_000_000
+                        c3.metric("Hacim (M)", f"{hacim_milyon:.1f}", 
+                                  "Onaylı" if hacim_onay else "Düşük")
+                        
+                        st.caption(f"Trend: {'YUKARI' if trend_yukari else 'AŞAĞI'} | Hacim Ort: {(data['v_ma']/1_000_000):.1f}M")
+            
         st.divider()
-        st.write(f"⏱️ **Son Güncelleme:** {datetime.now().strftime('%H:%M:%S')} | **Yenileme:** {p.GUNCELLEME_SANIYESI}s")
+        st.write(f"⏱️ Son Güncelleme: {datetime.now().strftime('%H:%M:%S')}")
         
-        # Sayfayı beklet ve yeniden çalıştır
         time.sleep(p.GUNCELLEME_SANIYESI)
         st.rerun()
