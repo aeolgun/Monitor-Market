@@ -16,47 +16,32 @@ def liste_yukle():
         if os.path.exists(file_path):
             with open(file_path, "r", encoding="utf-8") as f:
                 return [line.strip().upper() for line in f.readlines() if line.strip()]
-        else:
-            return ["THYAO.IS"]
-    except:
-        return ["THYAO.IS"]
+        else: return ["THYAO.IS"]
+    except: return ["THYAO.IS"]
 
 def get_data(symbol):
     try:
         ticker = yf.Ticker(symbol)
-        # Hacim ortalaması için 1 saatlik yerine 1 günlük veri daha sağlıklıdır
         df = ticker.history(period="60d", interval="1h")
+        if df.empty or len(df) < p.EMA_YAVAS: return None, None
         
-        if df.empty or len(df) < p.EMA_YAVAS:
-            return None, None
-
-        # EMA ve RSI Hesaplamaları
         df['ema_h'] = ta.ema(df['Close'], length=p.EMA_HIZLI)
         df['ema_y'] = ta.ema(df['Close'], length=p.EMA_YAVAS)
         df['rsi'] = ta.rsi(df['Close'], length=p.RSI_PERIYOT)
+        df['v_ma'] = ta.sma(df['Volume'], length=p.HACIM_MA_PERIYOT)
         
-        # Hacim MA Hesaplaması (Eğer sütun adı 'Volume' ise)
-        if 'Volume' in df.columns:
-            df['v_ma'] = ta.sma(df['Volume'], length=p.HACIM_MA_PERIYOT)
-        else:
-            df['v_ma'] = 0
-
         return df.iloc[-1], df['Close'].iloc[-1]
-    except:
-        return None, None
+    except: return None, None
 
-# --- ARAYÜZ ---
-st.title("📊 Monitor-Market: Canlı Analiz")
+st.title("📊 Monitor-Market: %25 Kar / %5 Zarar Takibi")
 
-with st.expander("⚙️ Mevcut Strateji Parametreleri", expanded=False):
-    c1, c2, c3, c4 = st.columns(4)
-    c1.write(f"**Hızlı EMA:** {p.EMA_HIZLI}")
-    c1.write(f"**Yavaş EMA:** {p.EMA_YAVAS}")
-    c2.write(f"**RSI Periyot:** {p.RSI_PERIYOT}")
-    c2.write(f"**RSI Eşik:** {p.RSI_SINIR}")
-    c3.write(f"**RSI Aşırı Alım:** {p.RSI_ASIRI_ALIM}")
-    c3.write(f"**Hacim MA:** {p.HACIM_MA_PERIYOT}")
-    c4.write(f"**Güncelleme:** {p.GUNCELLEME_SANIYESI}s")
+# Üst Panel Bilgilendirme
+with st.expander("🛡️ Aktif Risk Yönetimi Ayarları", expanded=True):
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Hedef Kar (TP)", f"%{p.KAR_AL_ORAN}")
+    c2.metric("Maksimum Zarar (SL)", f"%{p.ZARAR_KES_ORAN}")
+    c3.write(f"**Strateji:** EMA {p.EMA_HIZLI}/{p.EMA_YAVAS}")
+    c3.write(f"**RSI:** {p.RSI_SINIR} Üzeri Güçlü")
 
 st.divider()
 
@@ -66,56 +51,42 @@ placeholder = st.empty()
 while True:
     with placeholder.container():
         cols = st.columns(2)
-        
         for idx, h in enumerate(hisseler):
             data, price = get_data(h)
-            
             if data is not None:
-                # Sinyal Mantığı
+                # Sinyal ve Risk Hesaplama
                 trend_yukari = data['ema_h'] > data['ema_y']
                 rsi_guclu = data['rsi'] > p.RSI_SINIR
+                hacim_onay = data.get('Volume', 0) > data.get('v_ma', 0)
                 
-                # Hacim verisini kontrol et (Bazen 0 gelebilir)
-                guncel_hacim = data.get('Volume', 0)
-                hacim_ortalamasi = data.get('v_ma', 1) # 0'a bölme hatası için 1
-                hacim_onay = guncel_hacim > hacim_ortalamasi
+                # Dinamik Hedef Fiyatlar
+                hedef_kar_fiyati = price * (1 + p.KAR_AL_ORAN / 100)
+                zarar_kes_fiyati = price * (1 - p.ZARAR_KES_ORAN / 100)
                 
                 if trend_yukari and rsi_guclu and hacim_onay:
                     durum = "🟢 GÜÇLÜ AL"
                 elif not trend_yukari or data['rsi'] > p.RSI_ASIRI_ALIM:
                     durum = "🔴 SAT / RİSK"
                 else:
-                    durum = "🟡 BEKLE / NÖTR"
+                    durum = "🟡 BEKLE"
 
                 with cols[idx % 2]:
                     with st.container(border=True):
                         st.subheader(f"{h.replace('.IS', '')} : {price:.2f} TL")
-                        st.info(f"**Karar:** {durum}")
+                        st.info(f"**Sinyal:** {durum}")
                         
-                        d1, d2, d3 = st.columns(3)
+                        d1, d2 = st.columns(2)
+                        with d1:
+                            st.write("**Teknik Göstergeler**")
+                            st.write(f"RSI: `{round(data['rsi'], 1)}`")
+                            st.write(f"Hacim Onayı: `{'VAR' if hacim_onay else 'YOK'}`")
                         
-                        d1.write("**EMA Durumu**")
-                        d1.write(f"Hızlı: `{round(data['ema_h'], 2)}`")
-                        d1.write(f"Yavaş: `{round(data['ema_y'], 2)}`")
+                        with d2:
+                            st.write("**Fiyat Hedefleri**")
+                            st.success(f"🎯 Kar Al: **{hedef_kar_fiyati:.2f}**")
+                            st.error(f"🛡️ Stop: **{zarar_kes_fiyati:.2f}**")
                         
-                        d2.write("**Momentum**")
-                        d2.write(f"RSI: `{round(data['rsi'], 1)}`")
-                        d2.write(f"Durum: `{'Güçlü' if rsi_guclu else 'Zayıf'}`")
-                        
-                        d3.write("**Hacim (Lot)**")
-                        # Hacim değerini daha anlaşılır yapalım
-                        if guncel_hacim >= 1_000_000:
-                            d3.write(f"Anlık: `{guncel_hacim/1_000_000:.1f}M`")
-                        else:
-                            d3.write(f"Anlık: `{guncel_hacim:,.0f}`")
-                            
-                        if hacim_ortalamasi >= 1_000_000:
-                            d3.write(f"Ort: `{hacim_ortalamasi/1_000_000:.1f}M`")
-                        else:
-                            d3.write(f"Ort: `{hacim_ortalamasi:,.0f}`")
-                        
-                        st.caption(f"Trend: {'YUKARI' if trend_yukari else 'AŞAĞI'} | Hacim Onayı: {'EVET' if hacim_onay else 'HAYIR'}")
+                        st.caption(f"Veri Zamanı: {datetime.now().strftime('%H:%M:%S')}")
             
-        st.write(f"⏱️ Son Güncelleme: {datetime.now().strftime('%H:%M:%S')}")
         time.sleep(p.GUNCELLEME_SANIYESI)
         st.rerun()
