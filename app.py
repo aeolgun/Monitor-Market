@@ -7,130 +7,111 @@ from datetime import datetime
 import os
 import parameters as p
 
-# Sayfa Yapılandırması
-st.set_page_config(page_title="BIST Terminal", layout="wide")
+st.set_page_config(page_title="BIST Pro Terminal", layout="wide")
 
-# CSS: Okunabilirlik ve Net Renkler
+# CSS: Parlak Renkler ve Okunabilir Siyah Yazılar
 st.markdown("""
     <style>
-    /* Kart Genel Yapısı */
-    .stContainer {
-        border: 2px solid #f0f2f6;
-        border-radius: 15px;
-        background-color: #ffffff;
-        padding: 0px !important;
-    }
-    /* Metin Renklerini Sabitleme (Beyaz font hatasını önlemek için) */
-    h3, h4, p, span, div {
-        color: #1a1a1a !important;
-    }
-    .metric-box {
-        padding: 15px;
-        border-radius: 12px 12px 0 0;
-        text-align: center;
-    }
-    .param-row {
-        display: flex;
-        justify-content: space-between;
-        padding: 5px 15px;
-        border-bottom: 1px solid #eee;
-        font-size: 14px;
-    }
-    .label { font-weight: bold; color: #555 !important; }
-    .value { font-family: 'Courier New', monospace; font-weight: bold; }
+    .stContainer { border-radius: 15px; background-color: #f8f9fa; border: 1px solid #ddd; }
+    .metric-header { padding: 15px; border-radius: 12px 12px 0 0; text-align: center; margin-bottom: 10px; }
+    .metric-header h3, .metric-header h4, .metric-header small { color: white !important; margin: 0; }
+    .data-row { display: flex; justify-content: space-between; padding: 6px 15px; border-bottom: 1px solid #eee; }
+    .data-label { color: #444 !important; font-weight: bold; font-size: 13px; }
+    .data-value { color: #000 !important; font-weight: 800; font-family: 'Courier New', monospace; font-size: 14px; }
+    .stMarkdown p { color: #000 !important; } /* Genel metin siyah */
     </style>
 """, unsafe_allow_html=True)
-
-# Parametre Değerlerini Çekme (Hata korumalı)
-def get_p(attr, default):
-    return getattr(p, attr, default)
 
 @st.cache_resource
 def get_tv_connection():
     return TvDatafeed()
 
-def liste_yukle():
-    file_path = os.path.join(os.path.dirname(__file__), "inputs.txt")
-    if os.path.exists(file_path):
-        with open(file_path, "r", encoding="utf-8") as f:
-            return [line.strip().upper().replace(".IS", "") for line in f.readlines() if line.strip()]
-    return ["THYAO", "ASELS"]
+def get_p(attr, default):
+    return getattr(p, attr, default)
 
-st.title("📊 BIST Strateji İzleme")
+st.title("🚀 BIST Teknik Analiz Paneli")
 tv = get_tv_connection()
 placeholder = st.empty()
 
 while True:
-    hisseler = liste_yukle()
-    # Parametreleri her döngüde tazeleyelim
+    # Parametreleri Döngü Başında Al
     Z_DILIMI = get_p('ZAMAN_DILIMI', '4h')
-    EMA_H_LEN = get_p('EMA_HIZLI', 20)
-    EMA_Y_LEN = get_p('EMA_YAVAS', 50)
-    RSI_LEN = get_p('RSI_PERIYOT', 14)
-    RSI_SINIR = get_p('RSI_SINIR', 50)
-    HACIM_LEN = get_p('HACIM_MA_PERIYOT', 20)
-    KA_ORAN = get_p('KAR_AL_ORAN', 25.0)
-    ZK_ORAN = get_p('ZARAR_KES_ORAN', 5.0)
-
+    EMA_H_L = get_p('EMA_HIZLI', 20)
+    EMA_Y_L = get_p('EMA_YAVAS', 50)
+    RSI_L = get_p('RSI_PERIYOT', 14)
+    HACIM_L = get_p('HACIM_MA_PERIYOT', 20)
+    
     interval_map = {'1h': Interval.in_1_hour, '4h': Interval.in_4_hour, '1d': Interval.in_daily}
+    
+    file_path = os.path.join(os.path.dirname(__file__), "inputs.txt")
+    hisseler = ["THYAO", "ASELS"] # Default
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
+            hisseler = [line.strip().upper().replace(".IS", "") for line in f.readlines() if line.strip()]
 
     with placeholder.container():
         cols = st.columns(3)
         for idx, h in enumerate(hisseler):
             try:
-                df = tv.get_hist(symbol=h, exchange='BIST', interval=interval_map.get(Z_DILIMI), n_bars=100)
+                # Daha fazla bar çekelim (n_bars=200) ki indikatörler hesaplanabilsin
+                df = tv.get_hist(symbol=h, exchange='BIST', interval=interval_map.get(Z_DILIMI), n_bars=200)
+                
                 if df is not None and not df.empty:
                     df.columns = [x.lower() for x in df.columns]
+                    
+                    # --- HESAPLAMA BLOĞU ---
                     price = df['close'].iloc[-1]
-                    
-                    # Teknik Veriler
-                    rsi_val = ta.rsi(df['close'], length=RSI_LEN).iloc[-1]
-                    ema_h_val = ta.ema(df['close'], length=EMA_H_LEN).iloc[-1]
-                    ema_y_val = ta.ema(df['close'], length=EMA_Y_LEN).iloc[-1]
-                    v_ma_val = ta.sma(df['volume'], length=HACIM_LEN).iloc[-1]
-                    curr_vol = df['volume'].iloc[-1]
-                    
-                    # TAM RENK MANTIĞI (Daha doygun renkler)
-                    if ema_h_val > ema_y_val and rsi_val > RSI_SINIR:
-                        bg_color = "#22c55e"  # Tam Yeşil
+                    rsi_series = ta.rsi(df['close'], length=RSI_L)
+                    ema_h_series = ta.ema(df['close'], length=EMA_H_L)
+                    ema_y_series = ta.ema(df['close'], length=EMA_Y_L)
+                    v_ma_series = ta.sma(df['volume'], length=HACIM_L)
+
+                    # Veri kontrolü (Boşsa "Veri Yok" yazması için)
+                    rsi_v = rsi_series.iloc[-1] if rsi_series is not None else 0
+                    ema_h_v = ema_h_series.iloc[-1] if ema_h_series is not None else 0
+                    ema_y_v = ema_y_series.iloc[-1] if ema_y_series is not None else 0
+                    v_ma_v = v_ma_series.iloc[-1] if v_ma_series is not None else 0
+                    curr_v = df['volume'].iloc[-1]
+
+                    # Renk Kararı (Tam Doygun)
+                    if ema_h_v > ema_y_v and rsi_v > get_p('RSI_SINIR', 50):
+                        bg = "#00c853" # Parlak Yeşil
                         status = "GÜÇLÜ AL"
-                    elif ema_h_val < ema_y_val:
-                        bg_color = "#ef4444"  # Tam Kırmızı
+                    elif ema_h_v < ema_y_v:
+                        bg = "#d50000" # Parlak Kırmızı
                         status = "SATIŞ RİSKİ"
                     else:
-                        bg_color = "#facc15"  # Tam Sarı
-                        status = "NÖTR / İZLE"
+                        bg = "#ffd600" # Parlak Sarı
+                        status = "NÖTR"
 
                     with cols[idx % 3]:
                         with st.container():
-                            # Renkli Başlık Bölümü
+                            # Renkli Kısım
                             st.markdown(f"""
-                                <div class="metric-box" style="background-color:{bg_color};">
-                                    <h3 style="color: white !important; margin:0;">{h}</h3>
-                                    <h4 style="color: white !important; margin:0;">{price:.2f} TL</h4>
-                                    <small style="color: white !important;">{status}</small>
+                                <div class="metric-header" style="background-color:{bg};">
+                                    <h3>{h}</h3>
+                                    <h4>{price:.2f} TL</h4>
+                                    <small>{status}</small>
                                 </div>
                             """, unsafe_allow_html=True)
                             
-                            # Parametre Satırları (Beyaz arka plan üzerine siyah metin)
+                            # Detaylar
                             st.markdown(f"""
-                                <div class="param-row"><span class="label">Zaman Dilimi</span><span class="value">{Z_DILIMI}</span></div>
-                                <div class="param-row"><span class="label">EMA {EMA_H_LEN}</span><span class="value">{ema_h_val:.2f}</span></div>
-                                <div class="param-row"><span class="label">EMA {EMA_Y_LEN}</span><span class="value">{ema_y_val:.2f}</span></div>
-                                <div class="param-row"><span class="label">RSI {RSI_LEN}</span><span class="value">{rsi_val:.1f}</span></div>
-                                <div class="param-row"><span class="label">Hacim MA ({HACIM_LEN})</span><span class="value">{'Yeterli ✅' if curr_vol > v_ma_val else 'Düşük ❌'}</span></div>
-                                <div class="param-row" style="border:none;"><span class="label">Hedef Kar</span><span class="value">%{KA_ORAN}</span></div>
+                                <div class="data-row"><span class="data-label">Zaman:</span><span class="data-value">{Z_DILIMI}</span></div>
+                                <div class="data-row"><span class="data-label">EMA {EMA_H_L}:</span><span class="data-value">{ema_h_v:.2f}</span></div>
+                                <div class="data-row"><span class="data-label">EMA {EMA_Y_L}:</span><span class="data-value">{ema_y_v:.2f}</span></div>
+                                <div class="data-row"><span class="data-label">RSI {RSI_L}:</span><span class="data-value">{rsi_v:.1f}</span></div>
+                                <div class="data-row"><span class="data-label">Hacim MA:</span><span class="data-value">{'✅ OK' if curr_v > v_ma_v else '❌ DÜŞÜK'}</span></div>
                             """, unsafe_allow_html=True)
                             
-                            # Alt Bilgi (Hedef Fiyatlar)
+                            # Hedefler (Siyah Yazı)
                             st.divider()
-                            p1, p2 = st.columns(2)
-                            p1.success(f"🎯 Kar Al\n{price*(1+KA_ORAN/100):.2f}")
-                            p2.error(f"🛡️ Stop\n{price*(1-ZK_ORAN/100):.2f}")
-            except:
-                st.error(f"{h} verisi çekilemedi.")
+                            st.write(f"**🎯 Kar Al:** {price*(1+get_p('KAR_AL_ORAN',25)/100):.2f}")
+                            st.write(f"**🛡️ Stop:** {price*(1-get_p('ZARAR_KES_ORAN',5)/100):.2f}")
+                else:
+                    cols[idx % 3].error(f"{h} Veri Alınamadı")
+            except Exception as e:
+                cols[idx % 3].warning(f"{h} Hatası: {str(e)[:30]}")
 
-        st.caption(f"⏱️ Güncelleme: {datetime.now().strftime('%H:%M:%S')} | Mod: {Z_DILIMI}")
-    
     time.sleep(get_p('GUNCELLEME_SANIYESI', 60))
     st.rerun()
