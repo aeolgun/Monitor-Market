@@ -8,24 +8,42 @@ import os
 import parameters as p
 
 # Sayfa Yapılandırması
-st.set_page_config(page_title="BIST Analiz Terminali", layout="wide")
+st.set_page_config(page_title="BIST Terminal", layout="wide")
 
-# CSS: Alarm ve Kart Tasarımı
+# CSS: Okunabilirlik ve Net Renkler
 st.markdown("""
     <style>
-    .param-label { color: #555; font-size: 12px; font-weight: bold; }
-    .param-value { color: #000; font-size: 14px; font-family: monospace; }
-    .stContainer { border: 1px solid #e6e9ef; border-radius: 10px; padding: 10px; }
+    /* Kart Genel Yapısı */
+    .stContainer {
+        border: 2px solid #f0f2f6;
+        border-radius: 15px;
+        background-color: #ffffff;
+        padding: 0px !important;
+    }
+    /* Metin Renklerini Sabitleme (Beyaz font hatasını önlemek için) */
+    h3, h4, p, span, div {
+        color: #1a1a1a !important;
+    }
+    .metric-box {
+        padding: 15px;
+        border-radius: 12px 12px 0 0;
+        text-align: center;
+    }
+    .param-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 5px 15px;
+        border-bottom: 1px solid #eee;
+        font-size: 14px;
+    }
+    .label { font-weight: bold; color: #555 !important; }
+    .value { font-family: 'Courier New', monospace; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
-# Parametreleri Güvenli Çekme
-ZAMAN_DILIMI = getattr(p, 'ZAMAN_DILIMI', '4h')
-GUNCELLEME = getattr(p, 'GUNCELLEME_SANIYESI', 60)
-EMA_H = getattr(p, 'EMA_HIZLI', 20)
-EMA_Y = getattr(p, 'EMA_YAVAS', 50)
-
-interval_map = {'1h': Interval.in_1_hour, '4h': Interval.in_4_hour, '1d': Interval.in_daily}
+# Parametre Değerlerini Çekme (Hata korumalı)
+def get_p(attr, default):
+    return getattr(p, attr, default)
 
 @st.cache_resource
 def get_tv_connection():
@@ -38,65 +56,81 @@ def liste_yukle():
             return [line.strip().upper().replace(".IS", "") for line in f.readlines() if line.strip()]
     return ["THYAO", "ASELS"]
 
-st.title("📊 BIST Detaylı Teknik Takip")
+st.title("📊 BIST Strateji İzleme")
 tv = get_tv_connection()
 placeholder = st.empty()
 
 while True:
     hisseler = liste_yukle()
+    # Parametreleri her döngüde tazeleyelim
+    Z_DILIMI = get_p('ZAMAN_DILIMI', '4h')
+    EMA_H_LEN = get_p('EMA_HIZLI', 20)
+    EMA_Y_LEN = get_p('EMA_YAVAS', 50)
+    RSI_LEN = get_p('RSI_PERIYOT', 14)
+    RSI_SINIR = get_p('RSI_SINIR', 50)
+    HACIM_LEN = get_p('HACIM_MA_PERIYOT', 20)
+    KA_ORAN = get_p('KAR_AL_ORAN', 25.0)
+    ZK_ORAN = get_p('ZARAR_KES_ORAN', 5.0)
+
+    interval_map = {'1h': Interval.in_1_hour, '4h': Interval.in_4_hour, '1d': Interval.in_daily}
+
     with placeholder.container():
         cols = st.columns(3)
-        
         for idx, h in enumerate(hisseler):
             try:
-                df = tv.get_hist(symbol=h, exchange='BIST', interval=interval_map.get(ZAMAN_DILIMI), n_bars=100)
+                df = tv.get_hist(symbol=h, exchange='BIST', interval=interval_map.get(Z_DILIMI), n_bars=100)
                 if df is not None and not df.empty:
                     df.columns = [x.lower() for x in df.columns]
                     price = df['close'].iloc[-1]
                     
-                    # Teknik Hesaplamalar
-                    rsi_val = ta.rsi(df['close'], length=p.RSI_PERIYOT).iloc[-1]
-                    ema_h_val = ta.ema(df['close'], length=EMA_H).iloc[-1]
-                    ema_y_val = ta.ema(df['close'], length=EMA_Y).iloc[-1]
-                    v_ma_val = ta.sma(df['volume'], length=p.HACIM_MA_PERIYOT).iloc[-1]
-                    current_vol = df['volume'].iloc[-1]
+                    # Teknik Veriler
+                    rsi_val = ta.rsi(df['close'], length=RSI_LEN).iloc[-1]
+                    ema_h_val = ta.ema(df['close'], length=EMA_H_LEN).iloc[-1]
+                    ema_y_val = ta.ema(df['close'], length=EMA_Y_LEN).iloc[-1]
+                    v_ma_val = ta.sma(df['volume'], length=HACIM_LEN).iloc[-1]
+                    curr_vol = df['volume'].iloc[-1]
                     
-                    # Durum Belirleme
-                    is_bullish = ema_h_val > ema_y_val and rsi_val > p.RSI_SINIR
-                    bg_color = "#d4edda" if is_bullish else "#f8d7da" if ema_h_val < ema_y_val else "#fff3cd"
-                    status_text = "ALIM FIRSATI" if is_bullish else "SATICILI SEYİR" if ema_h_val < ema_y_val else "BEKLE / NÖTR"
+                    # TAM RENK MANTIĞI (Daha doygun renkler)
+                    if ema_h_val > ema_y_val and rsi_val > RSI_SINIR:
+                        bg_color = "#22c55e"  # Tam Yeşil
+                        status = "GÜÇLÜ AL"
+                    elif ema_h_val < ema_y_val:
+                        bg_color = "#ef4444"  # Tam Kırmızı
+                        status = "SATIŞ RİSKİ"
+                    else:
+                        bg_color = "#facc15"  # Tam Sarı
+                        status = "NÖTR / İZLE"
 
                     with cols[idx % 3]:
-                        # Ana Kart Başlığı
-                        st.markdown(f"""
-                            <div style="background-color:{bg_color}; padding:10px; border-radius:10px 10px 0 0; border:1px solid #ddd; text-align:center;">
-                                <h3 style="margin:0;">{h}</h3>
-                                <b style="font-size:20px;">{price:.2f} TL</b><br>
-                                <small>{status_text}</small>
-                            </div>
-                        """, unsafe_allow_html=True)
-                        
-                        # Parametre Detay Kutusu
-                        with st.container(border=True):
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                st.markdown(f"<span class='param-label'>Zaman:</span> <span class='param-value'>{ZAMAN_DILIMI}</span>", unsafe_allow_html=True)
-                                st.markdown(f"<span class='param-label'>EMA {EMA_H}:</span> <span class='param-value'>{ema_h_val:.2f}</span>", unsafe_allow_html=True)
-                                st.markdown(f"<span class='param-label'>EMA {EMA_Y}:</span> <span class='param-value'>{ema_y_val:.2f}</span>", unsafe_allow_html=True)
-                            with c2:
-                                st.markdown(f"<span class='param-label'>RSI ({p.RSI_PERIYOT}):</span> <span class='param-value'>{rsi_val:.1f}</span>", unsafe_allow_html=True)
-                                st.markdown(f"<span class='param-label'>Hacim MA:</span> <span class='param-value'>{'✅ OK' if current_vol > v_ma_val else '❌ DÜŞÜK'}</span>", unsafe_allow_html=True)
-                                st.markdown(f"<span class='param-label'>Hedef:</span> <span class='param-value'>%{p.KAR_AL_ORAN}</span>", unsafe_allow_html=True)
+                        with st.container():
+                            # Renkli Başlık Bölümü
+                            st.markdown(f"""
+                                <div class="metric-box" style="background-color:{bg_color};">
+                                    <h3 style="color: white !important; margin:0;">{h}</h3>
+                                    <h4 style="color: white !important; margin:0;">{price:.2f} TL</h4>
+                                    <small style="color: white !important;">{status}</small>
+                                </div>
+                            """, unsafe_allow_html=True)
                             
+                            # Parametre Satırları (Beyaz arka plan üzerine siyah metin)
+                            st.markdown(f"""
+                                <div class="param-row"><span class="label">Zaman Dilimi</span><span class="value">{Z_DILIMI}</span></div>
+                                <div class="param-row"><span class="label">EMA {EMA_H_LEN}</span><span class="value">{ema_h_val:.2f}</span></div>
+                                <div class="param-row"><span class="label">EMA {EMA_Y_LEN}</span><span class="value">{ema_y_val:.2f}</span></div>
+                                <div class="param-row"><span class="label">RSI {RSI_LEN}</span><span class="value">{rsi_val:.1f}</span></div>
+                                <div class="param-row"><span class="label">Hacim MA ({HACIM_LEN})</span><span class="value">{'Yeterli ✅' if curr_vol > v_ma_val else 'Düşük ❌'}</span></div>
+                                <div class="param-row" style="border:none;"><span class="label">Hedef Kar</span><span class="value">%{KA_ORAN}</span></div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Alt Bilgi (Hedef Fiyatlar)
                             st.divider()
-                            # Kar Al / Zarar Kes Seviyeleri
-                            st.success(f"🎯 Kar Al: **{price*(1+p.KAR_AL_ORAN/100):.2f}**")
-                            st.error(f"🛡️ Stop: **{price*(1-p.ZARAR_KES_ORAN/100):.2f}**")
+                            p1, p2 = st.columns(2)
+                            p1.success(f"🎯 Kar Al\n{price*(1+KA_ORAN/100):.2f}")
+                            p2.error(f"🛡️ Stop\n{price*(1-ZK_ORAN/100):.2f}")
+            except:
+                st.error(f"{h} verisi çekilemedi.")
 
-            except Exception as e:
-                st.error(f"{h} hatası")
-
-        st.caption(f"⏱️ Son Kontrol: {datetime.now().strftime('%H:%M:%S')} | Veri Kaynağı: TradingView")
-        
-    time.sleep(GUNCELLEME)
+        st.caption(f"⏱️ Güncelleme: {datetime.now().strftime('%H:%M:%S')} | Mod: {Z_DILIMI}")
+    
+    time.sleep(get_p('GUNCELLEME_SANIYESI', 60))
     st.rerun()
