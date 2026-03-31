@@ -1,4 +1,5 @@
 streamlit
-yfinance
 pandas
 pandas-ta
+datetime
+git+https://github.com/rongardF/tvdatafeed.git
