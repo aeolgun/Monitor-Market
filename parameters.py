@@ -4,6 +4,8 @@ RSI_PERIYOT = 14
 RSI_SINIR = 50
 RSI_ASIRI_ALIM = 75
 HACIM_MA_PERIYOT = 20
-KAR_AL_ORAN = 25.0    # Eksik olan satır bu olabilir
-ZARAR_KES_ORAN = 5.0  # Eksik olan satır bu olabilir
+KAR_AL_ORAN = 25.0    
+# Eksik olan satır bu olabilir
+ZARAR_KES_ORAN = 5.0  
+# Eksik olan satır bu olabilir
 GUNCELLEME_SANIYESI = 60
