@@ -33,15 +33,18 @@ def get_data(symbol):
         return df.iloc[-1], df['Close'].iloc[-1]
     except: return None, None
 
-st.title("📊 Monitor-Market: %25 Kar / %5 Zarar Takibi")
+st.title("📊 Monitor-Market: Risk & Analiz")
 
-# Üst Panel Bilgilendirme
-with st.expander("🛡️ Aktif Risk Yönetimi Ayarları", expanded=True):
+# Üst Panel
+with st.expander("🛡️ Aktif Strateji Ayarları", expanded=True):
     c1, c2, c3 = st.columns(3)
-    c1.metric("Hedef Kar (TP)", f"%{p.KAR_AL_ORAN}")
-    c2.metric("Maksimum Zarar (SL)", f"%{p.ZARAR_KES_ORAN}")
-    c3.write(f"**Strateji:** EMA {p.EMA_HIZLI}/{p.EMA_YAVAS}")
-    c3.write(f"**RSI:** {p.RSI_SINIR} Üzeri Güçlü")
+    # Parametrelerin varlığını kontrol ederek hata önleme
+    ka = getattr(p, 'KAR_AL_ORAN', 25.0)
+    zk = getattr(p, 'ZARAR_KES_ORAN', 5.0)
+    
+    c1.metric("Hedef Kar", f"%{ka}")
+    c2.metric("Zarar Kes", f"%{zk}")
+    c3.write(f"**EMA:** {p.EMA_HIZLI}/{p.EMA_YAVAS} | **RSI:** {p.RSI_SINIR}")
 
 st.divider()
 
@@ -49,19 +52,19 @@ hisseler = liste_yukle()
 placeholder = st.empty()
 
 while True:
+    hisseler = liste_yukle() # Listeyi her döngüde yenile
     with placeholder.container():
         cols = st.columns(2)
         for idx, h in enumerate(hisseler):
             data, price = get_data(h)
             if data is not None:
-                # Sinyal ve Risk Hesaplama
                 trend_yukari = data['ema_h'] > data['ema_y']
                 rsi_guclu = data['rsi'] > p.RSI_SINIR
                 hacim_onay = data.get('Volume', 0) > data.get('v_ma', 0)
                 
-                # Dinamik Hedef Fiyatlar
-                hedef_kar_fiyati = price * (1 + p.KAR_AL_ORAN / 100)
-                zarar_kes_fiyati = price * (1 - p.ZARAR_KES_ORAN / 100)
+                # Dinamik Fiyatlar
+                ka_fiyat = price * (1 + ka / 100)
+                zk_fiyat = price * (1 - zk / 100)
                 
                 if trend_yukari and rsi_guclu and hacim_onay:
                     durum = "🟢 GÜÇLÜ AL"
@@ -77,16 +80,15 @@ while True:
                         
                         d1, d2 = st.columns(2)
                         with d1:
-                            st.write("**Teknik Göstergeler**")
+                            st.write("**Teknik Gösterge**")
                             st.write(f"RSI: `{round(data['rsi'], 1)}`")
-                            st.write(f"Hacim Onayı: `{'VAR' if hacim_onay else 'YOK'}`")
+                            st.write(f"Hacim: `{'✅' if hacim_onay else '❌'}`")
                         
                         with d2:
-                            st.write("**Fiyat Hedefleri**")
-                            st.success(f"🎯 Kar Al: **{hedef_kar_fiyati:.2f}**")
-                            st.error(f"🛡️ Stop: **{zarar_kes_fiyati:.2f}**")
-                        
-                        st.caption(f"Veri Zamanı: {datetime.now().strftime('%H:%M:%S')}")
+                            st.write("**Hedef Seviyeler**")
+                            st.success(f"🎯 Kar: {ka_fiyat:.2f}")
+                            st.error(f"🛡️ Stop: {zk_fiyat:.2f}")
             
-        time.sleep(p.GUNCELLEME_SANIYESI)
-        st.rerun()
+        st.write(f"⏱️ Güncelleme: {datetime.now().strftime('%H:%M:%S')}")
+    time.sleep(p.GUNCELLEME_SANIYESI)
+    st.rerun()
