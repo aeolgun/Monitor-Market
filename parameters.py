@@ -4,8 +4,8 @@ EMA_YAVAS = 50
 
 # RSI Ayarları
 RSI_PERIYOT = 14
-RSI_SINIR = 50
-RSI_ASIRI_ALIM = 75
+RSI_SINIR = 50          # Pozisyona giriş eşiği
+RSI_ASIRI_ALIM = 70     # Kar al/Çıkış eşiği (İsteğin üzerine 70 yapıldı)
 
 # HACIM Ayarları
 HACIM_MA_PERIYOT = 20
@@ -16,5 +16,6 @@ ZARAR_KES_ORAN = 5.0
 
 # Zaman Dilimi Ayarı (TradingView Formatı: '1h', '4h', '1d')
 ZAMAN_DILIMI = '4h'
+
 # Uygulama Ayarları
 GUNCELLEME_SANIYESI = 60
