@@ -16,6 +16,5 @@ ZARAR_KES_ORAN = 5.0
 
 # Zaman Dilimi Ayarı (TradingView Formatı: '1h', '4h', '1d')
 ZAMAN_DILIMI = '4h'
-
 # Uygulama Ayarları
 GUNCELLEME_SANIYESI = 60
