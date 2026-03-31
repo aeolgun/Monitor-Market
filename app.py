@@ -7,6 +7,7 @@ from datetime import datetime
 import os
 import parameters as p
 
+# Sayfa Yapılandırması
 st.set_page_config(page_title="Monitor-Market", layout="wide")
 
 def liste_yukle():
@@ -20,42 +21,54 @@ def liste_yukle():
     except: return ["THYAO.IS"]
 
 def get_data(symbol):
+    # Yahoo'yu yormamak için her istek öncesi çok kısa bekleme
+    time.sleep(0.6) 
+    
     try:
         ticker = yf.Ticker(symbol)
-        # Önce 1 saatlik (1h) veriyi dene
-        df = ticker.history(period="60d", interval="1h")
+        df = pd.DataFrame()
         
-        # Eğer saatlik veri boşsa veya yetersizse, günlük (1d) veriyi dene
+        # 1. DENEME: Saatlik Veri (1h) - 3 kez deniyoruz
+        for _ in range(3):
+            df = ticker.history(period="60d", interval="1h")
+            if not df.empty and len(df) >= p.EMA_YAVAS:
+                interval_type = "Saatlik"
+                break
+            time.sleep(1)
+            
+        # 2. DENEME: Saatlik gelmezse Günlük Veri (1d) dene
         if df.empty or len(df) < p.EMA_YAVAS:
             df = ticker.history(period="150d", interval="1d")
             interval_type = "Günlük"
-        else:
-            interval_type = "Saatlik"
 
         if df.empty or len(df) < p.EMA_YAVAS:
             return None, None, None
 
-        # İndikatörler
+        # İndikatör Hesaplamaları
         df['ema_h'] = ta.ema(df['Close'], length=p.EMA_HIZLI)
         df['ema_y'] = ta.ema(df['Close'], length=p.EMA_YAVAS)
         df['rsi'] = ta.rsi(df['Close'], length=p.RSI_PERIYOT)
         df['v_ma'] = ta.sma(df['Volume'], length=p.HACIM_MA_PERIYOT)
         
         return df.iloc[-1], df['Close'].iloc[-1], interval_type
-    except:
+    except Exception as e:
         return None, None, None
 
-st.title("📊 Monitor-Market: Canlı Takip")
+# --- ARAYÜZ ---
+st.title("📈 Monitor-Market: Canlı BIST Takibi")
 
-# Üst Panel
-ka = getattr(p, 'KAR_AL_ORAN', 25.0)
-zk = getattr(p, 'ZARAR_KES_ORAN', 5.0)
+# Parametreleri al (Hata payı için getattr kullanıldı)
+ka_oran = getattr(p, 'KAR_AL_ORAN', 25.0)
+zk_oran = getattr(p, 'ZARAR_KES_ORAN', 5.0)
 
-with st.expander("🛡️ Aktif Strateji Ayarları", expanded=False):
+with st.expander("🛡️ Strateji ve Risk Parametreleri", expanded=False):
     c1, c2, c3 = st.columns(3)
-    c1.metric("Hedef Kar", f"%{ka}")
-    c2.metric("Zarar Kes", f"%{zk}")
-    c3.write(f"**EMA:** {p.EMA_HIZLI}/{p.EMA_YAVAS} | **RSI:** {p.RSI_SINIR}")
+    c1.metric("Hedef Kar", f"%{ka_oran}")
+    c1.metric("Zarar Kes", f"%{zk_oran}")
+    c2.write(f"**Trend:** EMA {p.EMA_HIZLI}/{p.EMA_YAVAS}")
+    c2.write(f"**RSI:** {p.RSI_SINIR} Eşik")
+    c3.write(f"**Hacim MA:** {p.HACIM_MA_PERIYOT}")
+    c3.write(f"**Yenileme:** {p.GUNCELLEME_SANIYESI}s")
 
 st.divider()
 
@@ -72,41 +85,42 @@ while True:
             
             if data is not None:
                 success_count += 1
+                # Sinyal Kararı
                 trend_yukari = data['ema_h'] > data['ema_y']
                 rsi_guclu = data['rsi'] > p.RSI_SINIR
                 hacim_onay = data.get('Volume', 0) > data.get('v_ma', 0)
                 
-                # Dinamik Fiyatlar
-                ka_fiyat = price * (1 + ka / 100)
-                zk_fiyat = price * (1 - zk / 100)
+                # Hedef Fiyatlar
+                tp_fiyat = price * (1 + ka_oran / 100)
+                sl_fiyat = price * (1 - zk_oran / 100)
                 
                 if trend_yukari and rsi_guclu and hacim_onay:
-                    durum = "🟢 GÜÇLÜ AL"
+                    durum, renk = "🟢 GÜÇLÜ AL", "green"
                 elif not trend_yukari or data['rsi'] > p.RSI_ASIRI_ALIM:
-                    durum = "🔴 SAT / RİSK"
+                    durum, renk = "🔴 SAT / RİSK", "red"
                 else:
-                    durum = "🟡 BEKLE"
+                    durum, renk = "🟡 BEKLE / NÖTR", "gray"
 
                 with cols[idx % 2]:
                     with st.container(border=True):
                         st.subheader(f"{h.replace('.IS', '')} : {price:.2f} TL")
-                        st.info(f"**Sinyal:** {durum} ({i_type})")
+                        st.markdown(f"**Sinyal:** {durum} *({i_type})*")
                         
                         d1, d2 = st.columns(2)
                         with d1:
-                            st.write("**Teknik Gösterge**")
+                            st.write("**Teknikler**")
                             st.write(f"RSI: `{round(data['rsi'], 1)}`")
                             st.write(f"Hacim: `{'✅' if hacim_onay else '❌'}`")
                         
                         with d2:
-                            st.write("**Hedef Seviyeler**")
-                            st.success(f"🎯 Kar: {ka_fiyat:.2f}")
-                            st.error(f"🛡️ Stop: {zk_fiyat:.2f}")
+                            st.write("**Hedefler**")
+                            st.success(f"🎯 Kar: {tp_fiyat:.2f}")
+                            st.error(f"🛡️ Stop: {sl_fiyat:.2f}")
 
         if success_count == 0:
-            st.warning("⚠️ Veri çekilemiyor. Lütfen inputs.txt dosyasındaki sembollerin doğruluğunu kontrol edin (Örn: ASELS.IS).")
+            st.warning("⚠️ Hisse verileri çekilemedi. Pazar kapalı olabilir veya inputs.txt dosyasını kontrol edin.")
             
-        st.write(f"⏱️ Güncelleme: {datetime.now().strftime('%H:%M:%S')}")
+        st.write(f"⏱️ Son Güncelleme: {datetime.now().strftime('%H:%M:%S')}")
     
     time.sleep(p.GUNCELLEME_SANIYESI)
     st.rerun()
