@@ -7,12 +7,15 @@ RSI_PERIYOT = 14
 RSI_SINIR = 50
 RSI_ASIRI_ALIM = 75
 
-# Hacim Ayarları
+# HACIM Ayarları
 HACIM_MA_PERIYOT = 20
 
 # Risk Yönetimi (Yüzde %)
 KAR_AL_ORAN = 25.0
 ZARAR_KES_ORAN = 5.0
+
+# Zaman Dilimi Ayarı (TradingView Formatı: '1h', '4h', '1d')
+ZAMAN_DILIMI = '4h'
 
 # Uygulama Ayarları
 GUNCELLEME_SANIYESI = 60
